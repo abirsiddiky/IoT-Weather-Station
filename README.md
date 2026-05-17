@@ -102,9 +102,14 @@ Install from **Arduino Library Manager**
    WIFI_SSID
    WIFI_PASSWORD
 3.  Set timezone offset:
-    
 
-RegionOffset (seconds)Bangladesh21600India19800UK0New York-18000
+UTC_OFFSET_SEC
+### Example Timezones
+Region	Value
+Bangladesh	**21600**
+India	**19800**
+UK	0
+New York	-**18000**
 
 1.  Select board + COM port
     
