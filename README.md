@@ -101,15 +101,12 @@ Install from **Arduino Library Manager**
    ```cpp
    WIFI_SSID
    WIFI_PASSWORD
-3.  Set timezone offset:
+3. Set UTC_OFFSET_SEC for your timezone  
 
-UTC_OFFSET_SEC
-### Example Timezones
-Region	Value
-Bangladesh	**21600**
-India	**19800**
-UK	0
-New York	-**18000**
+Bangladesh (**UTC**+6) = 6 * **3600** = **21600**  
+India      (**UTC**+5:30) = **19800**  
+UK         (**UTC**+0)   = 0  
+US/New York (**UTC**-5)  = -**18000**  
 
 1.  Select board + COM port
     
