@@ -20,6 +20,7 @@
 - [Configuration](#configuration)
 - [Board Settings](#board-settings)
 - [Upload Instructions](#upload-instructions)
+- [Linux USB Permission Fix](#linux-usb-permission-fix)
 - [Dashboard & API](#dashboard--api)
 - [REST API Reference](#rest-api-reference)
 - [WebSocket Protocol](#websocket-protocol)
@@ -128,18 +129,31 @@ D1 / GPIO5  (SCL) ─ SCL
 
 ## Library Installation
 
-Install all five libraries via **Arduino IDE → Tools → Manage Libraries…**
+Install **all six libraries** via **Arduino IDE → Tools → Manage Libraries…**
 
-| # | Library Name | Search Term | Author |
-|---|---|---|---|
-| 1 | ESPAsyncWebServer | `ESPAsyncWebServer` | lacamera |
-| 2 | AsyncTCP *(ESP32)* | `AsyncTCP` | dvarrel |
-| 2 | ESPAsyncTCP *(ESP8266)* | `ESPAsyncTCP` | dvarrel |
-| 3 | Adafruit BME280 Library | `Adafruit BME280` | Adafruit |
-| 4 | Adafruit Unified Sensor | `Adafruit Unified Sensor` | Adafruit |
-| 5 | NTPClient | `NTPClient` | Fabrice Weinberg |
+| # | Library Name | Search Term | Author | Notes |
+|---|---|---|---|---|
+| 1 | ESPAsyncWebServer | `ESPAsyncWebServer` | lacamera | Required for all |
+| 2 | AsyncTCP *(ESP32 only)* | `AsyncTCP` | dvarrel | ESP32 only |
+| 2 | ESPAsyncTCP *(ESP8266 only)* | `ESPAsyncTCP` | dvarrel | ESP8266 only |
+| 3 | Adafruit BME280 Library | `Adafruit BME280` | Adafruit | Required for all |
+| 4 | Adafruit Unified Sensor | `Adafruit Unified Sensor` | Adafruit | BME280 dependency |
+| 5 | **Adafruit BusIO** | `Adafruit BusIO` | Adafruit | **Required — missing this causes `Adafruit_I2CDevice.h` error** |
+| 6 | NTPClient | `NTPClient` | Fabrice Weinberg | Required for all |
 
-> **Note:** Install either `AsyncTCP` (ESP32) **or** `ESPAsyncTCP` (ESP8266) — not both. Installing the wrong one for your board will cause compile errors.
+> **⚠ Important notes:**
+> - Install either `AsyncTCP` (ESP32) **or** `ESPAsyncTCP` (ESP8266) — **never both**. Wrong library = compile error.
+> - When installing **Adafruit BME280** or **Adafruit BusIO**, Arduino IDE may ask **"Install all dependencies?"** — always click **"Install All"**.
+> - If you get `fatal error: Adafruit_I2CDevice.h: No such file or directory` — it means **Adafruit BusIO** is missing. Install it from Library Manager.
+
+### Common Library Errors & Fixes
+
+| Error Message | Cause | Fix |
+|---|---|---|
+| `Not used: .../ESP_Async_TCP` | Wrong AsyncTCP for ESP8266 | Remove it, install `ESPAsyncTCP` instead |
+| `fatal error: Adafruit_I2CDevice.h` | Missing Adafruit BusIO | Install `Adafruit BusIO` from Library Manager |
+| `AsyncTCP.h not found` | Wrong AsyncTCP for ESP8266 | Install `ESPAsyncTCP` (not `AsyncTCP`) |
+| `operator+ invalid operands` | ESP8266 strict C++ on char* | Already fixed in sketch with `String()` wrapper |
 
 ---
 
@@ -253,6 +267,75 @@ Open **Tools** menu and set:
 ```
 
 8. Open your browser and navigate to the IP address shown, **or** `http://weatherstation.local`
+
+---
+
+## Linux USB Permission Fix
+
+On Linux, the first upload attempt may fail with:
+
+```
+[Errno 13] Permission denied: '/dev/ttyUSB0'
+```
+
+or after a successful upload:
+
+```
+Error opening serial port '/dev/ttyUSB0'. Try consulting the documentation...
+```
+
+> ✅ **If you see the second error but the upload log shows `Hash of data verified.` — your code uploaded successfully!** The error is just the Serial Monitor failing to open, not the upload itself.
+
+### Permanent Fix (Recommended)
+
+Run this command in a terminal:
+
+```bash
+sudo usermod -a -G dialout $USER
+```
+
+Then **log out and log back in** (or restart your PC). After re-login, the permission is permanent — you won't need to repeat this.
+
+```bash
+# Verify you're in the dialout group:
+groups $USER
+# Should show: ... dialout ...
+```
+
+### Temporary Fix (No restart needed)
+
+If you need to upload right now without logging out:
+
+```bash
+sudo chmod 666 /dev/ttyUSB0
+```
+
+> ⚠ This resets on every reboot. Use the `usermod` command above for a permanent fix.
+
+### Serial Monitor Permission Fix
+
+Even after upload, if Serial Monitor shows the permission error:
+
+```bash
+sudo chmod 666 /dev/ttyUSB0
+```
+
+Then in Arduino IDE: **Tools → Serial Monitor** → set baud rate to **115200**.
+
+### Full Verified Upload Log (What Success Looks Like)
+
+```
+Chip is ESP8266EX
+Uploading stub... Running stub... Stub running...
+Auto-detected Flash size: 4MB
+Writing at 0x00000000... (5 %)
+...
+Writing at 0x00044000... (100 %)
+Wrote 405712 bytes (280353 compressed) in 6.8 seconds
+Hash of data verified.        ← ✅ Upload complete
+Leaving...
+Hard resetting via RTS pin... ← ✅ ESP8266 restarted
+```
 
 ---
 
@@ -441,11 +524,46 @@ WeatherStation/
 - Try a private/incognito window or disable browser extensions/ad blockers
 - Ensure only one device on the network runs the same mDNS hostname
 
-### Compile error: `AsyncTCP.h not found`
+### Compile error: Wrong AsyncTCP library
 
-- ESP32: install `AsyncTCP` (not `ESPAsyncTCP`)
-- ESP8266: install `ESPAsyncTCP` (not `AsyncTCP`)
-- Never install both — they conflict
+```
+Not used: /home/.../libraries/ESP_Async_TCP
+```
+
+- This means you installed `ESP_Async_TCP` or `AsyncTCP` for an **ESP8266** board
+- Delete the folder from `~/Arduino/libraries/`
+- Install **`ESPAsyncTCP`** (by dvarrel) instead — this is the correct one for ESP8266
+- Never install both `AsyncTCP` and `ESPAsyncTCP` at the same time
+
+### Compile error: `Adafruit_I2CDevice.h` not found
+
+```
+fatal error: Adafruit_I2CDevice.h: No such file or directory
+```
+
+- The **Adafruit BusIO** library is missing
+- Go to **Tools → Manage Libraries** → search `Adafruit BusIO` → Install
+- When prompted "Install all dependencies?" → click **Install All**
+
+### Compile error: `operator+` invalid operands
+
+```
+error: invalid operands of types 'const char [12]' and 'const char*' to binary 'operator+'
+```
+
+- This is an ESP8266 strict C++ issue with string concatenation
+- Already fixed in the current sketch by wrapping with `String(...)`
+- If you see this, make sure you have the latest version of `WeatherStation.ino`
+
+### Linux: Permission denied on `/dev/ttyUSB0`
+
+```
+[Errno 13] Permission denied: '/dev/ttyUSB0'
+```
+
+- See the full [Linux USB Permission Fix](#linux-usb-permission-fix) section above
+- Quick fix: `sudo chmod 666 /dev/ttyUSB0`
+- Permanent fix: `sudo usermod -a -G dialout $USER` then log out and back in
 
 ### OTA fails or port not visible
 
@@ -463,38 +581,46 @@ WeatherStation/
 
 ## Dashboard Preview
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│  🌤 Weather Station          ● Online  ● WiFi    ⚙  🌙        │
-├────────────────────────────────────────────────────────────────┤
-│                                                                │
-│                   10:30:47 PM                                  │
-│              Sunday, May 17, 2026                              │
-│                                                                │
-├───────────────────────────┬────────────────────────────────────┤
-│ 🌡 TEMPERATURE             │ 💧 HUMIDITY                       │
-│  26.5 °C                  │  72.3 %                           │
-│  Feels like: 28.1°C       │  ✅ Ideal Humidity                │
-│  ████████░░░░░░░░         │  ████████████████░░░              │
-│  [~~ sparkline chart ~~]  │  [▃▄▅▆▇█▇▆▅▄▃ drop bar]          │
-├────────────┬──────────────┼─────────────────┬──────────────── ┤
-│ 🔵 PRESSURE │ ⛰ ALTITUDE  │ 📶 WIFI          │ ⏱ UPTIME       │
-│  756.2      │  8.5 m      │  ▂▄▆█  -65 dBm  │  2h 15m 30s    │
-│  mmHg       │  sea level  │  Excellent       │  Since boot     │
-│  🌤 Fair    │             │                  │                 │
-├────────────┴──────────────┴─────────────────┴─────────────────┤
-│  ● Live  Last updated: 10:30:47 PM · v2.0 · REST API          │
-└────────────────────────────────────────────────────────────────┘
-```
+### 🖥 Desktop Mode (Dark Theme)
 
-The UI features:
-- **Glassmorphism dark theme** with subtle gradient blobs
-- **Smooth number animations** on every value update
-- **Pressure-to-weather mapping** (storm / unsettled / variable / fair / sunny)
-- **Heat index** calculation using the Rothfusz regression equation
-- **Dark / Light mode toggle** (sun/moon button in header)
-- **Live dot** pulsing in the footer confirms active WebSocket connection
-- **API button** (⚙) links directly to the JSON endpoint
+![Desktop-Dark](assets/screenshot-1.png)
+
+### 🖥 Desktop Mode (Light Theme)
+
+![Desktop-Light](assets/screenshot-2.png)
+
+> Toggle between dark and light mode using the **🌙 / ☀️ button** in the top-right corner.
+
+---
+
+### 📱 Mobile Mode (Dark Theme — Portrait)
+
+![Mobile-Dark](assets/screenshot-3.png)
+
+
+### 📱 Mobile Mode (Light Theme — Portrait)
+
+![Mobile-Light](assets/screenshot-4.png)
+
+> On mobile, the 4-column bottom row **automatically reflows to 2×2 grid**. The hero clock font scales down with `clamp()` for all screen sizes.
+
+---
+
+### UI Feature Highlights
+
+| Feature | Description |
+|---|---|
+| **Glassmorphism cards** | `backdrop-filter: blur` with translucent borders |
+| **Dark / Light toggle** | One-click, instant switch via CSS `data-theme` attribute |
+| **Sparkline chart** | Canvas-based Bézier curve, last 15 min of temperature |
+| **Humidity drops** | Bar visualization that fills proportionally to humidity % |
+| **WiFi bars** | 4-bar signal indicator coloured by dBm strength |
+| **Number flash** | Values briefly dim-and-brighten on each update |
+| **Loading screen** | Animated cloud icon + progress bar while WebSocket connects |
+| **Reconnect overlay** | Blurred overlay with spinner if connection drops |
+| **Heat index** | Rothfusz regression — only shown when T > 27°C and H > 40% |
+| **Pressure label** | Maps hPa value to storm / unsettled / variable / fair / sunny |
+| **Responsive** | Tested on 320px (small phone) to 1440px (desktop) |
 
 ---
 
@@ -504,4 +630,4 @@ MIT License — free to use, modify, and distribute for personal and commercial 
 
 ---
 
-*Built with ❤ by Abir Siddiky. If this project helped you, consider starring the repo and sharing it.*
+*Built with ❤ for the maker community. If this project helped you, consider starring the repo and sharing it.*
