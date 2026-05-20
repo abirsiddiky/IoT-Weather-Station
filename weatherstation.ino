@@ -115,6 +115,14 @@
  *  ✗ Compile errors on ESP8266
  *    → Ensure you have "ESPAsyncTCP" (not "AsyncTCP") installed
  *    → Core version should be ≥ 3.1.x
+ *
+ *  ✗ Date shows wrong year (e.g. 5427055) on ESP8266
+ *    → gmtime((time_t*)&epoch) is buggy on ESP8266 — corrupts tm_year
+ *    → Fixed in this sketch: getDate() uses manual epoch calculation
+ *       instead of gmtime(), works correctly on both ESP32 and ESP8266
+ *
+ *  ✗ operator+ compile error on ESP8266 (const char[] + const char*)
+ *    → Fixed in this sketch: buildJSON() wraps bool results in String()
  */
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -144,8 +152,8 @@
 //  ★  USER CONFIGURATION  ← Edit only this section  ★
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const char* WIFI_SSID       = "Abir";     // ← Your WiFi network name
-const char* WIFI_PASSWORD   = "1815741922Abir"; // ← Your WiFi password
+const char* WIFI_SSID       = "YOUR_WIFI_SSID";     // ← Your WiFi network name
+const char* WIFI_PASSWORD   = "YOUR_WIFI_PASSWORD"; // ← Your WiFi password
 const long  UTC_OFFSET_SEC  = 6 * 3600;             // ← UTC+6 (Bangladesh). Change as needed.
 const char* DEVICE_HOSTNAME = "weatherstation";      // ← mDNS: weatherstation.local
 const char* OTA_PASSWORD    = "ota1234";             // ← OTA update password (change this!)
@@ -796,18 +804,49 @@ String getTime12h() {
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  HELPER — FORMATTED DATE
+//  NOTE: gmtime((time_t*)&epoch) is unreliable on ESP8266 — it corrupts
+//        tm_year and returns random huge numbers like 5427055.
+//        We use a manual epoch → date calculation instead which works
+//        correctly on both ESP32 and ESP8266.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 String getDate() {
   if (!ntpSynced) return "Syncing…";
-  // NTPClient epoch already includes UTC offset, so gmtime gives local time
-  unsigned long epoch = timeClient.getEpochTime();
-  struct tm* t = gmtime((time_t*)&epoch);
-  const char* wd[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
-  const char* mn[] = {"January","February","March","April","May","June",
-                      "July","August","September","October","November","December"};
+
+  unsigned long epoch = timeClient.getEpochTime();  // UTC+offset already applied
+  unsigned long days  = epoch / 86400UL;            // Total days since Jan 1 1970
+
+  // ── Day of week (Jan 1 1970 was a Thursday = index 4) ────────────────
+  int dow = (int)((days + 4UL) % 7UL);
+
+  // ── Calculate year from days ──────────────────────────────────────────
+  int year = 1970;
+  while (true) {
+    bool leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    unsigned int daysInYear = leap ? 366 : 365;
+    if (days < daysInYear) break;
+    days -= daysInYear;
+    year++;
+  }
+
+  // ── Calculate month from remaining days ───────────────────────────────
+  bool leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+  int daysInMonth[] = { 31, leap ? 29 : 28, 31, 30, 31, 30,
+                        31, 31, 30, 31, 30, 31 };
+  int month = 0;
+  while (month < 12 && days >= (unsigned long)daysInMonth[month]) {
+    days -= daysInMonth[month];
+    month++;
+  }
+  int day = (int)days + 1;   // 1-based day of month
+
+  const char* wd[] = { "Sunday","Monday","Tuesday","Wednesday",
+                       "Thursday","Friday","Saturday" };
+  const char* mn[] = { "January","February","March","April",
+                       "May","June","July","August",
+                       "September","October","November","December" };
+
   char buf[64];
-  snprintf(buf, sizeof(buf), "%s, %s %d, %d",
-           wd[t->tm_wday], mn[t->tm_mon], t->tm_mday, 1900 + t->tm_year);
+  snprintf(buf, sizeof(buf), "%s, %s %d, %d", wd[dow], mn[month], day, year);
   return String(buf);
 }
 
@@ -824,8 +863,8 @@ String buildJSON() {
   j += "\"date\":\""       + getDate()                  + "\",";
   j += "\"uptime\":"       + String(millis() / 1000UL)  + ",";
   j += "\"rssi\":"         + String(WiFi.RSSI())         + ",";
-  j += "\"sensorOk\":" + String(sensorOK ? "true" : "false") + ",";
-  j += "\"wifiOk\":"   + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
+  j += "\"sensorOk\":"     + String(sensorOK ? "true" : "false") + ",";  // String() wrap required for ESP8266
+  j += "\"wifiOk\":"       + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
 
   // History array (ordered oldest → newest)
   j += "\"history\":[";
